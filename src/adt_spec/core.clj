@@ -33,28 +33,107 @@
 
 (s/def ::field
   (s/or
-    ::generic symbol?
-    ::predicate fn?
-    ;;::spec #(s/spec? %)
-    ::spec keyword?
-    ))
+    :generic symbol?
+    :predicate (s/or
+                 :fn fn?
+                 :spec #(s/spec? %))
+    :spec-ref keyword?))
 
 (s/def ::product
   (s/or
     :empty-prod keyword?
     :prod (s/cat
-            ::variant keyword?
-            ::fields (s/+ ::field))))
+            :variant keyword?
+            :fields (s/+ ::field))))
 
 (s/def ::adt
-  (s/cat ::type keyword?
-         ::generics (s/* symbol?)
-         ::products (s/* ::product)))
+  (s/cat :type keyword?
+         :generics (s/* symbol?)
+         :products (s/* ::product)))
 
+
+;; if generics then rename type keyword
+;; if generics then substitute generic symbols for concrete types
+;;   For each :prod, for each *generic* field, replace generic with spec or pred depending on type
+;; sdef with the type name
+;; or of each product
+;; use tuple for product with fields
 (defn adt
   "Returns a clojure spec for the ADT"
-  [definition & generics]
-  )
+  [definition & gs]
+  (let [{:keys [::type ::generics ::products]} (s/conform ::adt definition)
+        type (if (some? generics)
+               (keyword (namespace type) (apply str (name type) "-" (map str gs)))
+               type)
+        products (if (some? generics)
+                   (substitute products generics gs)
+                   products)]
+    [type
+     products]
+    ))
+
+(defn sdef
+  [x y])
+
+(defn sor
+  [& xs])
+
+(defn replace
+  [lookup field]
+  (println "in replace")
+  (match field
+         [:generic sym] (let [t (lookup sym)]
+                          (if (s/spec? t)
+                            [:spec-ref t]
+                            [:predicate t]))
+         :else field))
+
+(defn replace-generics
+  [conformed types]
+  (let [lookup (zipmap (conformed :generics) types)]
+    (reduce
+      (fn [m [p f]]
+        (update-in m [:products p 1 :fields f] (partial replace lookup)))
+      (dissoc conformed :generics)
+      (for [p (range 0 (count (conformed :products)))
+            f (range 0 (count (get-in conformed [:products p 1 :fields])))]
+        [p f]))))
+
+(defn or-body
+  [replaced]
+  (update replaced :products (fn [ps]
+                               (for [p ps]
+                                 (match p
+                                        [:empty-prod kw] [kw kw]
+                                        [:prod  {:variant kw :fields fs}] [kw (s/tuple (is kw) pred)])))))
+
+;(defmacro adt-spec
+;  [type]
+;  (let [{:keys [::type ::generics ::products]} (s/conform ::adt definition)
+;        type (if (some? generics)
+;               (keyword (namespace type) (apply str (name type) "-" (map str gs)))
+;               type)
+;        products (if (some? generics)
+;                   (substitute products generics gs)
+;                   products)]
+;    `(s/def ~type
+;       (s/or
+;         ~@(apply concat
+;                  (for [c [:red :green :blue]]
+;                    [c (is c)]))))))
+
+
+
+
+(def tree-result
+  #:adt-spec.core{:type     :adt-spec.core/tree,
+                  :generics ['a],
+                  :products [[:empty-prod :empty]
+                             [:prod #:adt-spec.core{:variant :leaf,
+                                                    :fields  [[:adt-spec.core/generic 'a]]}]
+                             [:prod #:adt-spec.core{:variant :node,
+                                                    :fields  [[:adt-spec.core/spec :adt-spec.core/tree]
+                                                              [:adt-spec.core/spec :adt-spec.core/tree]]}]]})
 
 (def tree
   [::tree 'a
@@ -67,10 +146,10 @@
    [:point double? double? double?]
    [:point {:x double? :y double? :z double?}]])
 
-(def list
-  (partial adt [::list 'a
-                :nil
-                [:cons 'a ::list]]))
+(def generic-list
+  [::list 'a
+   :nil
+   [:cons 'a ::list]])
 
 (list int?)                                                 ;; -> spec of List<Long>
 
@@ -91,8 +170,8 @@
    :green])
 
 (def temperature
-  (adt [::temp
-        [:kelvin (s/and double? pos?)]
-        [:celcius (s/and double? #(> 273.15))]
-        [:farenheit (s/and double? #(> 459.67))]]))
+  [::temp
+   [:kelvin (s/and double? pos?)]
+   [:celcius (s/and double? #(> 273.15))]
+   [:farenheit (s/and double? #(> 459.67))]])
 
