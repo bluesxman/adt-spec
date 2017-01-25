@@ -99,13 +99,31 @@
             f (range 0 (count (get-in conformed [:products p 1 :fields])))]
         [p f]))))
 
+
+(defmacro gen-tuple
+  [kw fields]
+  `(s/tuple (is ~kw) ~@fields))
+
 (defn or-body
   [replaced]
   (update replaced :products (fn [ps]
-                               (for [p ps]
-                                 (match p
-                                        [:empty-prod kw] [kw kw]
-                                        [:prod  {:variant kw :fields fs}] [kw (s/tuple (is kw) pred)])))))
+                               (apply concat
+                                      (for [p ps]
+                                        (match p
+                                               [:empty-prod kw] [kw kw]
+                                               [:prod {:variant kw :fields fs}] [kw (gen-tuple kw (seq fs))]))))))
+
+(defmacro adt-spec
+  [type products]
+  `(s/def ~type (s/or ~@products)))
+
+(defn adt
+  [definition & gs]
+  (let [{:keys [type products]} (->
+                                  (s/conform ::adt definition)
+                                  (replace-generics gs)
+                                  (or-body))]
+    (adt-spec type (seq products))))
 
 ;(defmacro adt-spec
 ;  [type]
